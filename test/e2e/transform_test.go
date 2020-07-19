@@ -9,6 +9,7 @@ import (
 
 	ktransformv1alpha1 "github.com/mgoltzsche/ktransform/pkg/apis/ktransform/v1alpha1"
 	framework "github.com/operator-framework/operator-sdk/pkg/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,8 +42,8 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 		assertOutput(t, prefix, ns, usr, pw, "changedCMValue", "registry0.example.org", "registry1.example.org")
 	})
 
-	t.Run("input Secret change should reconcile", func(t *testing.T) {
-		prefix := "inputsecretchange"
+	t.Run("input Secret data change should reconcile", func(t *testing.T) {
+		prefix := "inputsecretdatachange"
 		cr := createTestData(t, prefix, ns, usr, pw)
 		input := &corev1.Secret{}
 		inputKey := types.NamespacedName{Name: prefix + "-mysecret0", Namespace: ns}
@@ -54,6 +55,28 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 		require.NoError(t, err)
 		waitForTransformation(t, cr, cr.Status.OutputHash, 10*time.Second)
 		assertOutput(t, prefix, ns, usr, pw, "cmvalue", "changedregistry.example.org", "registry1.example.org")
+	})
+
+	t.Run("input Secret ref clean up", func(t *testing.T) {
+		prefix := "inputsecretrefcleanup"
+		cr := createTestData(t, prefix, ns, usr, pw)
+		cr.Spec.Input["secret0"] = cr.Spec.Input["secret1"]
+		err := f.Client.Update(context.Background(), cr)
+		require.NoError(t, err)
+		waitForTransformation(t, cr, cr.Status.OutputHash, 10*time.Second)
+		refFound := false
+		for _, ref := range cr.Status.ManagedReferences {
+			if ref.Name == prefix+"-mysecret0" {
+				refFound = true
+				break
+			}
+		}
+		assert.False(t, refFound, "secret ref in status should be dropped after spec does not exist anymore")
+		input := &corev1.Secret{}
+		inputKey := types.NamespacedName{Name: prefix + "-mysecret0", Namespace: ns}
+		err = f.Client.Get(context.Background(), inputKey, input)
+		require.NoError(t, err)
+		require.Empty(t, input.OwnerReferences, "Secret's ownerReferences should be empty after secret is not referenced anymore")
 	})
 
 	t.Run("input ConfigMap deletion and recreation should reconcile", func(t *testing.T) {

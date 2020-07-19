@@ -37,6 +37,7 @@ func (s *referenceOwner) SetStatusReferences(refs []backrefs.Object) {
 			Name: ref.GetName(),
 		}
 	}
+	s.Status.ManagedReferences = o
 }
 
 func (owner *referenceOwner) GetObject() backrefs.Object {
