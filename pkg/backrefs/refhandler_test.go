@@ -11,8 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const testAnnotation = "backrefhandler"
@@ -37,6 +37,7 @@ func TestBackReferenceHandler(t *testing.T) {
 }
 
 func testBackReferenceHandler(t *testing.T, strategy BackReferenceStrategy, crossNamespace bool, inverseRefs func(refs []Object, o Object) []string) {
+	logger := logf.Log
 	ctx := context.TODO()
 	client := fake.NewFakeClient()
 	owner := &mockOwner{&corev1.ConfigMap{}}
@@ -73,7 +74,7 @@ func testBackReferenceHandler(t *testing.T, strategy BackReferenceStrategy, cros
 		{nil, "remove all refs"},
 	} {
 		t.Log(c.name)
-		err := testee.UpdateReferences(ctx, owner, c.refs)
+		err := testee.UpdateReferences(ctx, logger, owner, c.refs)
 		require.NoError(t, err, "UpdateReferences")
 		loadObjects(t, client, allObj)
 		versions := toVersionMap(allObj)
@@ -85,7 +86,7 @@ func testBackReferenceHandler(t *testing.T, strategy BackReferenceStrategy, cros
 		backRefSecrets := inverseRefs(c.refs, owner.GetObject())
 		require.Equal(t, keys(c.refs), backRefSecrets, "back references (secrets->configmap)")
 
-		err = testee.UpdateReferences(ctx, owner, c.refs)
+		err = testee.UpdateReferences(ctx, logger, owner, c.refs)
 		require.NoError(t, err, "UpdateReferences without changes")
 		loadObjects(t, client, allObj)
 

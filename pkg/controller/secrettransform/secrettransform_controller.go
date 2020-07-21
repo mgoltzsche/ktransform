@@ -124,17 +124,16 @@ func (r *ReconcileSecretTransform) Reconcile(request reconcile.Request) (reconci
 	// When marked as deleted finalize object: remove back references
 	if !cr.ObjectMeta.DeletionTimestamp.IsZero() {
 		if hasFinalizer(cr, finalizer) {
-			err = r.refhandler.UpdateReferences(context.TODO(), refOwner, nil)
+			reqLogger.Info("Finalizing " + cr.Kind)
+			err = r.refhandler.UpdateReferences(context.TODO(), reqLogger, refOwner, nil)
 			if err != nil {
 				reqLogger.Error(err, "finalizer %s failed to clean up ownerReferences", finalizer)
 				return reconcile.Result{}, err
 			}
 			controllerutil.RemoveFinalizer(cr, finalizer)
 			err = r.client.Update(context.TODO(), cr)
-			if err != nil {
-				return reconcile.Result{}, err
-			}
 		}
+		return reconcile.Result{}, err
 	}
 
 	// Fetch inputs
@@ -154,7 +153,7 @@ func (r *ReconcileSecretTransform) Reconcile(request reconcile.Request) (reconci
 
 	// Add CR as ownerReference to referenced Secrets/ConfigMaps
 	controllerutil.AddFinalizer(cr, finalizer)
-	err = r.refhandler.UpdateReferences(context.TODO(), refOwner, refs)
+	err = r.refhandler.UpdateReferences(context.TODO(), reqLogger, refOwner, refs)
 	if err != nil {
 		r.setSyncStatus(cr, corev1.ConditionFalse, ktransformv1alpha1.ReasonFailed, err.Error())
 		return reconcile.Result{}, err
