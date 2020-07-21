@@ -21,10 +21,10 @@ func TestOperator(t *testing.T) {
 	err = ctx.InitializeClusterResources(&framework.CleanupOptions{TestContext: ctx, Timeout: time.Second * 30, RetryInterval: time.Second * 3})
 	require.NoError(t, err)
 
-	namespace, err := ctx.GetNamespace()
-	require.NoError(t, err)
+	namespace, err := ctx.GetOperatorNamespace()
+	require.NoError(t, err, "testctx.GetOperatorNamespace()")
 	f := framework.Global
-	err = e2eutil.WaitForOperatorDeployment(t, f.KubeClient, namespace, "ktransform", 1, time.Second*5, time.Second*30)
+	err = e2eutil.WaitForOperatorDeployment(t, f.KubeClient, namespace, "ktransform-operator", 1, time.Second*5, time.Second*30)
 	require.NoError(t, err)
 
 	t.Run("SecretTransform", func(t *testing.T) {

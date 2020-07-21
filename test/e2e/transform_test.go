@@ -18,7 +18,7 @@ import (
 
 func testTransform(t *testing.T, ctx *framework.Context) {
 	f := framework.Global
-	ns, err := ctx.GetNamespace()
+	ns, err := ctx.GetOperatorNamespace()
 	require.NoError(t, err)
 
 	// Create resources

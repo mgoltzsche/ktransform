@@ -52,10 +52,7 @@ operatorsdk-tests-local:
 
 operatorsdk-tests:
 	kubectl create namespace $(TEST_NAMESPACE)
-	for M in service_account role role_binding operator; do \
-		echo '---'; cat deploy/operator/$${M}.yaml; \
-	done >/tmp/ktransformoperator-manifest-e2e.yaml
-	operator-sdk test local ./test/e2e --namespace $(TEST_NAMESPACE) --namespaced-manifest /tmp/ktransformoperator-manifest-e2e.yaml; \
+	operator-sdk test local ./test/e2e; \
 	STATUS=$$?; \
 	kubectl delete namespace $(TEST_NAMESPACE); \
 	exit $$STATUS
