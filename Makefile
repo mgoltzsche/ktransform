@@ -51,11 +51,7 @@ operatorsdk-tests-local:
 	exit $$STATUS
 
 operatorsdk-tests:
-	kubectl create namespace $(TEST_NAMESPACE)
-	operator-sdk test local ./test/e2e; \
-	STATUS=$$?; \
-	kubectl delete namespace $(TEST_NAMESPACE); \
-	exit $$STATUS
+	operator-sdk test local ./test/e2e
 
 install-tools: download-deps
 	cat tools.go | grep -E '^\s*_' | cut -d'"' -f2 | xargs -n1 go install

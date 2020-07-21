@@ -35,7 +35,7 @@ var (
 	errAmbiguousResource     = goerrors.New("configMap or secret required but both specified")
 	errUnspecifiedResource   = goerrors.New("neither configMap or secret specified")
 	errMissingTransformation = goerrors.New("no transformation specified")
-	finalizer                = "ktransform.mgoltzsche.github.com/finalizer"
+	finalizer                = "ktransform.mgoltzsche.github.com/clearbackrefs"
 )
 
 const (
@@ -122,8 +122,9 @@ func (r *ReconcileSecretTransform) Reconcile(request reconcile.Request) (reconci
 	refOwner := &referenceOwner{cr}
 
 	// When marked as deleted finalize object: remove back references
+	isFinalizerPresent := hasFinalizer(cr, finalizer)
 	if !cr.ObjectMeta.DeletionTimestamp.IsZero() {
-		if hasFinalizer(cr, finalizer) {
+		if isFinalizerPresent {
 			reqLogger.Info("Finalizing " + cr.Kind)
 			err = r.refhandler.UpdateReferences(context.TODO(), reqLogger, refOwner, nil)
 			if err != nil {
@@ -132,8 +133,23 @@ func (r *ReconcileSecretTransform) Reconcile(request reconcile.Request) (reconci
 			}
 			controllerutil.RemoveFinalizer(cr, finalizer)
 			err = r.client.Update(context.TODO(), cr)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
 		}
-		return reconcile.Result{}, err
+		return reconcile.Result{}, nil
+	}
+
+	// Add finalizer
+	if !isFinalizerPresent {
+		controllerutil.AddFinalizer(cr, finalizer)
+		err := r.client.Update(context.TODO(), cr)
+		if err != nil {
+			r.setSyncStatus(cr, corev1.ConditionFalse, ktransformv1alpha1.ReasonFailed, err.Error())
+			return reconcile.Result{}, err
+		}
+		// Stop here since update triggered another reconcile request anyway
+		return reconcile.Result{}, nil
 	}
 
 	// Fetch inputs
@@ -152,7 +168,6 @@ func (r *ReconcileSecretTransform) Reconcile(request reconcile.Request) (reconci
 	}
 
 	// Add CR as ownerReference to referenced Secrets/ConfigMaps
-	controllerutil.AddFinalizer(cr, finalizer)
 	err = r.refhandler.UpdateReferences(context.TODO(), reqLogger, refOwner, refs)
 	if err != nil {
 		r.setSyncStatus(cr, corev1.ConditionFalse, ktransformv1alpha1.ReasonFailed, err.Error())

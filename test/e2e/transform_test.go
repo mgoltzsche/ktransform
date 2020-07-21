@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 )
@@ -26,11 +28,13 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 	pw := "passwd"
 	prefix := "basic"
 	cr := createTestData(t, prefix, ns, usr, pw)
+	defer deleteTestCR(t, cr)
 	assertOutput(t, prefix, ns, usr, pw, "cmvalue", "registry0.example.org", "registry1.example.org")
 
 	t.Run("input ConfigMap change should reconcile", func(t *testing.T) {
 		prefix := "inputcmchange"
 		cr := createTestData(t, prefix, ns, usr, pw)
+		defer deleteTestCR(t, cr)
 		input := &corev1.ConfigMap{}
 		inputKey := types.NamespacedName{Name: prefix + "-myconfig", Namespace: ns}
 		err = f.Client.Get(context.Background(), inputKey, input)
@@ -45,6 +49,7 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 	t.Run("input Secret data change should reconcile", func(t *testing.T) {
 		prefix := "inputsecretdatachange"
 		cr := createTestData(t, prefix, ns, usr, pw)
+		defer deleteTestCR(t, cr)
 		input := &corev1.Secret{}
 		inputKey := types.NamespacedName{Name: prefix + "-mysecret0", Namespace: ns}
 		err = f.Client.Get(context.Background(), inputKey, input)
@@ -60,6 +65,7 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 	t.Run("input Secret ref clean up", func(t *testing.T) {
 		prefix := "inputsecretrefcleanup"
 		cr := createTestData(t, prefix, ns, usr, pw)
+		defer deleteTestCR(t, cr)
 		cr.Spec.Input["secret0"] = cr.Spec.Input["secret1"]
 		err := f.Client.Update(context.Background(), cr)
 		require.NoError(t, err)
@@ -79,7 +85,25 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 		require.Empty(t, input.OwnerReferences, "Secret's ownerReferences should be empty after secret is not referenced anymore")
 	})
 
+	t.Run("CR deletion should not delete inputs", func(t *testing.T) {
+		prefix := "finalizertest"
+		cr := createTestData(t, prefix, ns, usr, pw)
+		defer deleteTestCR(t, cr)
+		require.Equal(t, []string{"ktransform.mgoltzsche.github.com/clearbackrefs"}, cr.Finalizers, "finalizers")
+		err := f.Client.Delete(context.TODO(), cr)
+		require.NoError(t, err, "delete CR")
+		waitForDeletion(t, cr)
+		inputKey := types.NamespacedName{Name: prefix + "-mysecret0", Namespace: ns}
+		input := corev1.Secret{}
+		err = f.Client.Get(context.TODO(), inputKey, &input)
+		require.NoError(t, err, "get input secret after referenced CR is deleted")
+		require.Equal(t, []metav1.OwnerReference(nil), input.OwnerReferences, "input.ownerReferences after CR deletion")
+	})
+
 	t.Run("input ConfigMap deletion and recreation should reconcile", func(t *testing.T) {
+		prefix := "inputrecreation"
+		cr := createTestData(t, prefix, ns, usr, pw)
+		defer deleteTestCR(t, cr)
 		input := &corev1.ConfigMap{}
 		inputKey := types.NamespacedName{Name: prefix + "-myconfig", Namespace: ns}
 		err = f.Client.Get(context.Background(), inputKey, input)
@@ -96,6 +120,11 @@ func testTransform(t *testing.T, ctx *framework.Context) {
 		waitForTransformation(t, cr, cr.Status.OutputHash, 40*time.Second)
 		assertOutput(t, prefix, ns, usr, pw, "changedCMValue", "registry0.example.org", "registry1.example.org")
 	})
+}
+
+func deleteTestCR(t *testing.T, cr *ktransformv1alpha1.SecretTransform) {
+	framework.Global.Client.Delete(context.Background(), cr)
+	waitForDeletion(t, cr)
 }
 
 func createTestData(t *testing.T, prefix, ns, usr, pw string) *ktransformv1alpha1.SecretTransform {
@@ -180,6 +209,14 @@ func assertOutput(t *testing.T, prefix, ns, usr, pw, configMapValue string, regi
 	require.Equal(t, fmt.Sprintf(`{"confKey":%q}`, configMapValue), string(outCm.Data["myconf"]), "outConfigMap.data.myconf")
 }
 
+func waitForDeletion(t *testing.T, cr *ktransformv1alpha1.SecretTransform) {
+	err := WaitForCondition(t, cr, 10*time.Second, func() (c []string) {
+		return []string{"deletion"}
+	})
+	require.Error(t, err, "not found error expected after deletion")
+	require.True(t, errors.IsNotFound(err), "expected not found error but was: %s", err)
+}
+
 func waitForDesyncStatus(t *testing.T, cr *ktransformv1alpha1.SecretTransform) {
 	err := WaitForCondition(t, cr, 10*time.Second, func() (c []string) {
 		if !cr.Status.Conditions.IsFalseFor(ktransformv1alpha1.ConditionSynced) {
@@ -208,5 +245,8 @@ func waitForTransformation(t *testing.T, cr *ktransformv1alpha1.SecretTransform,
 		}
 		return
 	})
-	require.NoError(t, err)
+	if !assert.NoError(t, err) {
+		deleteTestCR(t, cr)
+		t.FailNow()
+	}
 }
